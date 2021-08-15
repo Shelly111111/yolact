@@ -1,9 +1,9 @@
 {
   "ExpandedNodes": [
     "",
-    "\\data",
-    "\\data\\scripts"
+    "\\paddle",
+    "\\pytorch"
   ],
-  "SelectedNode": "\\eval.py",
+  "SelectedNode": "\\pytorch\\eval.py",
   "PreviewInSolutionExplorer": false
 }

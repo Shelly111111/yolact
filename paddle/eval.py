@@ -11,9 +11,7 @@ import pycocotools
 from data import cfg, set_cfg, set_dataset
 
 import numpy as np
-import torch
-import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
+import paddle
 import argparse
 import time
 import random
@@ -41,7 +39,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description='YOLACT COCO Evaluation')
     parser.add_argument('--trained_model',
-                        default='weights/yolact_base_54_800000.pth', type=str,
+                        default='weights/yolact_base_54_800000.pdparams', type=str,
                         help='Trained state_dict file path to open. If "interrupt", this will open the interrupt file.')
     parser.add_argument('--top_k', default=5, type=int,
                         help='Further restrict the number of predictions to parse')
@@ -138,7 +136,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
     """
     if undo_transform:
         img_numpy = undo_image_transformation(img, w, h)
-        img_gpu = torch.Tensor(img_numpy).cuda()
+        img_gpu = paddle.to_tensor(img_numpy)
     else:
         img_gpu = img / 255.0
         h, w, _ = img.shape
@@ -157,7 +155,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
         if cfg.eval_mask_branch:
             # Masks are drawn on the GPU, so don't copy
             masks = t[3][idx]
-        classes, scores, boxes = [x[idx].cpu().numpy() for x in t[:3]]
+        classes, scores, boxes = [x[idx].numpy() for x in t[:3]]
 
     num_dets_to_consider = min(args.top_k, classes.shape[0])
     for j in range(num_dets_to_consider):
@@ -179,7 +177,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
                 # The image might come in as RGB or BRG, depending
                 color = (color[2], color[1], color[0])
             if on_gpu is not None:
-                color = torch.Tensor(color).to(on_gpu).float() / 255.
+                color = paddle.to_tensor(color).astype('float32') / 255.
                 color_cache[on_gpu][color_idx] = color
             return color
 
@@ -191,7 +189,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
         masks = masks[:num_dets_to_consider, :, :, None]
         
         # Prepare the RGB images for each mask given their color (size [num_dets, h, w, 1])
-        colors = torch.cat([get_color(j, on_gpu=img_gpu.device.index).view(1, 1, 1, 3) for j in range(num_dets_to_consider)], dim=0)
+        colors = paddle.concat([get_color(j, on_gpu=img_gpu.device.index).reshape(1, 1, 1, 3) for j in range(num_dets_to_consider)], axis=0)
         masks_color = masks.repeat(1, 1, 1, 3) * colors * mask_alpha
 
         # This is 1 everywhere except for 1-mask_alpha where the mask is
@@ -202,9 +200,9 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
         #        img_gpu = img_gpu * inv_alph_masks[j] + masks_color[j]
         masks_color_summand = masks_color[0]
         if num_dets_to_consider > 1:
-            inv_alph_cumul = inv_alph_masks[:(num_dets_to_consider-1)].cumprod(dim=0)
+            inv_alph_cumul = inv_alph_masks[:(num_dets_to_consider-1)].cumprod(axis=0)
             masks_color_cumul = masks_color[1:] * inv_alph_cumul
-            masks_color_summand += masks_color_cumul.sum(dim=0)
+            masks_color_summand += masks_color_cumul.sum(axis=0)
 
         img_gpu = img_gpu * inv_alph_masks.prod(dim=0) + masks_color_summand
     
@@ -221,7 +219,7 @@ def prep_display(dets_out, img, h, w, undo_transform=True, class_color=False, ma
 
     # Then draw the stuff that needs to be done on the cpu
     # Note, make sure this is a uint8 tensor or opencv will not anti alias text for whatever reason
-    img_numpy = (img_gpu * 255).byte().cpu().numpy()
+    img_numpy = (img_gpu * 255).byte().numpy()
 
     if args.display_fps:
         # Draw the text on the CPU
@@ -268,17 +266,17 @@ def prep_benchmark(dets_out, h, w):
     with timer.env('Copy'):
         classes, scores, boxes, masks = [x[:args.top_k] for x in t]
         if isinstance(scores, list):
-            box_scores = scores[0].cpu().numpy()
-            mask_scores = scores[1].cpu().numpy()
+            box_scores = scores[0].numpy()
+            mask_scores = scores[1].numpy()
         else:
-            scores = scores.cpu().numpy()
-        classes = classes.cpu().numpy()
-        boxes = boxes.cpu().numpy()
-        masks = masks.cpu().numpy()
+            scores = scores.numpy()
+        classes = classes.numpy()
+        boxes = boxes.numpy()
+        masks = masks.numpy()
     
     with timer.env('Sync'):
         # Just in case
-        torch.cuda.synchronize()
+        paddle.cuda.synchronize()
 
 def prep_coco_cats():
     """ Prepare inverted table for category id lookup given a coco cats object. """
@@ -376,24 +374,25 @@ class Detections:
 def _mask_iou(mask1, mask2, iscrowd=False):
     with timer.env('Mask IoU'):
         ret = mask_iou(mask1, mask2, iscrowd)
-    return ret.cpu()
+    return ret
 
 def _bbox_iou(bbox1, bbox2, iscrowd=False):
     with timer.env('BBox IoU'):
         ret = jaccard(bbox1, bbox2, iscrowd)
-    return ret.cpu()
+    return ret
 
 def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, detections:Detections=None):
     """ Returns a list of APs for this image, with each element being for a class  """
     if not args.output_coco_json:
         with timer.env('Prepare gt'):
-            gt_boxes = torch.Tensor(gt[:, :4])
+            gt_boxes = gt[:, :4]
             gt_boxes[:, [0, 2]] *= w
             gt_boxes[:, [1, 3]] *= h
             gt_classes = list(gt[:, 4].astype(int))
-            gt_masks = torch.Tensor(gt_masks).view(-1, h*w)
+            gt_masks = paddle.to_tensor(gt_masks).reshape(-1, h*w).astype('float32')
 
             if num_crowd > 0:
+                num_crowd = int(num_crowd)
                 split = lambda x: (x[-num_crowd:], x[:-num_crowd])
                 crowd_boxes  , gt_boxes   = split(gt_boxes)
                 crowd_masks  , gt_masks   = split(gt_masks)
@@ -402,25 +401,25 @@ def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, de
     with timer.env('Postprocess'):
         classes, scores, boxes, masks = postprocess(dets, w, h, crop_masks=args.crop, score_threshold=args.score_threshold)
 
-        if classes.size(0) == 0:
+        if not classes.shape:
             return
 
-        classes = list(classes.cpu().numpy().astype(int))
+        classes = list(classes.numpy().astype(int))
         if isinstance(scores, list):
-            box_scores = list(scores[0].cpu().numpy().astype(float))
-            mask_scores = list(scores[1].cpu().numpy().astype(float))
+            box_scores = list(scores[0].numpy().astype('float32'))
+            mask_scores = list(scores[1].numpy().astype('float32'))
         else:
-            scores = list(scores.cpu().numpy().astype(float))
+            scores = list(scores.numpy().astype('float32'))
             box_scores = scores
             mask_scores = scores
-        masks = masks.view(-1, h*w).cuda()
-        boxes = boxes.cuda()
+        masks = masks.view(-1, h*w)
+        boxes = boxes
 
 
     if args.output_coco_json:
         with timer.env('JSON Output'):
-            boxes = boxes.cpu().numpy()
-            masks = masks.view(-1, h, w).cpu().numpy()
+            boxes = boxes.numpy()
+            masks = masks.reshape(-1, h, w).numpy()
             for i in range(masks.shape[0]):
                 # Make sure that the bounding box actually makes sense and a mask was produced
                 if (boxes[i, 3] - boxes[i, 1]) * (boxes[i, 2] - boxes[i, 0]) > 0:
@@ -433,11 +432,11 @@ def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, de
         num_gt   = len(gt_classes)
 
         mask_iou_cache = _mask_iou(masks, gt_masks)
-        bbox_iou_cache = _bbox_iou(boxes.float(), gt_boxes.float())
+        bbox_iou_cache = _bbox_iou(boxes.astype('float32'), gt_boxes.astype('float32'))
 
         if num_crowd > 0:
             crowd_mask_iou_cache = _mask_iou(masks, crowd_masks, iscrowd=True)
-            crowd_bbox_iou_cache = _bbox_iou(boxes.float(), crowd_boxes.float(), iscrowd=True)
+            crowd_bbox_iou_cache = _bbox_iou(boxes.astype('float32'), crowd_boxes.astype('float32'), iscrowd=True)
         else:
             crowd_mask_iou_cache = None
             crowd_bbox_iou_cache = None
@@ -593,7 +592,7 @@ def badhash(x):
     return x
 
 def evalimage(net:Yolact, path:str, save_path:str=None):
-    frame = torch.from_numpy(cv2.imread(path)).cuda().float()
+    frame = paddle.to_tensor(cv2.imread(path)).astype('float32')
     batch = FastBaseTransform()(frame.unsqueeze(0))
     preds = net(batch)
 
@@ -627,7 +626,7 @@ def evalimages(net:Yolact, input_folder:str, output_folder:str):
 from multiprocessing.pool import ThreadPool
 from queue import Queue
 
-class CustomDataParallel(torch.nn.DataParallel):
+class CustomDataParallel(paddle.DataParallel):
     """ A Custom Data Parallel class that properly gathers lists of dictionaries. """
     def gather(self, outputs, output_device):
         # Note that I don't actually want to convert everything to the output_device
@@ -658,8 +657,8 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
     else:
         num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    net = CustomDataParallel(net).cuda()
-    transform = torch.nn.DataParallel(FastBaseTransform()).cuda()
+    net = CustomDataParallel(net)
+    transform = torch.nn.DataParallel(FastBaseTransform())
     frame_times = MovingAverage(100)
     fps = 0
     frame_time_target = 1 / target_fps
@@ -690,16 +689,16 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
         return frames
 
     def transform_frame(frames):
-        with torch.no_grad():
-            frames = [torch.from_numpy(frame).cuda().float() for frame in frames]
-            return frames, transform(torch.stack(frames, 0))
+        with paddle.no_grad():
+            frames = [paddle.to_tensor(frame).astype('float32') for frame in frames]
+            return frames, transform(paddle.stack(frames, 0))
 
     def eval_network(inp):
-        with torch.no_grad():
+        with paddle.no_grad():
             frames, imgs = inp
             num_extra = 0
             while imgs.size(0) < args.video_multiframe:
-                imgs = torch.cat([imgs, imgs[0].unsqueeze(0)], dim=0)
+                imgs = paddle.concat([imgs, imgs[0].unsqueeze(0)], axis=0)
                 num_extra += 1
             out = net(imgs)
             if num_extra > 0:
@@ -707,7 +706,7 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
             return frames, out
 
     def prep_frame(inp, fps_str):
-        with torch.no_grad():
+        with paddle.no_grad():
             frame, preds = inp
             return prep_display(preds, frame, None, None, undo_transform=False, class_color=True, fps_str=fps_str)
 
@@ -787,8 +786,8 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
             import traceback
             traceback.print_exc()
 
-
-    extract_frame = lambda x, i: (x[0][i] if x[1][i]['detection'] is None else x[0][i].to(x[1][i]['detection']['box'].device), [x[1][i]])
+    extract_frame = lambda x, i: (x[0][i] if x[1][i]['detection'] is None else x[0][i], [x[1][i]])
+    #extract_frame = lambda x, i: (x[0][i] if x[1][i]['detection'] is None else x[0][i].to(x[1][i]['detection']['box'].device), [x[1][i]])
 
     # Prime the network on the first frame because I do some thread unsafe things otherwise
     print('Initializing model... ', end='')
@@ -940,14 +939,16 @@ def evaluate(net:Yolact, dataset, train_mode=False):
                     with open('scripts/info.txt', 'w') as f:
                         f.write(str(dataset.ids[image_idx]))
                     np.save('scripts/gt.npy', gt_masks)
-
-                batch = Variable(img.unsqueeze(0))
-                if args.cuda:
-                    batch = batch.cuda()
+                
+                batch = paddle.to_tensor(img.unsqueeze(0))
+                #batch = Variable(img.unsqueeze(0))
+                #if args.cuda:
+                #    batch = batch.cuda()
 
             with timer.env('Network Extra'):
                 preds = net(batch)
                 #print(preds)
+            #pringt(preds)
             # Perform the meat of the operation here depending on our mode.
             if args.display:
                 img_numpy = prep_display(preds, img, h, w)
@@ -1071,15 +1072,11 @@ if __name__ == '__main__':
     if args.dataset is not None:
         set_dataset(args.dataset)
 
-    with torch.no_grad():
+    with paddle.no_grad():
         if not os.path.exists('results'):
             os.makedirs('results')
 
-        if args.cuda:
-            cudnn.fastest = True
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
-        else:
-            torch.set_default_tensor_type('torch.FloatTensor')
+        paddle.set_default_dtype('float32')
 
         if args.resume and not args.display:
             with open(args.ap_data_file, 'rb') as f:
@@ -1099,9 +1096,6 @@ if __name__ == '__main__':
         net.load_weights(args.trained_model)
         net.eval()
         print(' Done.')
-
-        if args.cuda:
-            net = net.cuda()
 
         evaluate(net, dataset)
 
