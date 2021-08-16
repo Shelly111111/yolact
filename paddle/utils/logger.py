@@ -119,9 +119,18 @@ class Log:
         
         if self.log_time:
             info['time'] = time.time()
-            
-        
-        out = json.dumps(info) + '\n'
+
+        class MyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.float32):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                else:
+                    return super(MyEncoder, self).default(obj)
+        out = json.dumps(info,cls=MyEncoder) + '\n'
 
         with open(self.log_path, 'a') as f:
             f.write(out)

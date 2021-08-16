@@ -140,7 +140,7 @@ coco2014_dataset = dataset_base.copy({
 coco2017_dataset = dataset_base.copy({
     'name': 'COCO 2017',
     
-    'train_info': './data/coco/annotations/instances_train2017.json',
+    'train_info': './data/coco/annotations/instances_val2017.json',
     'valid_info': './data/coco/annotations/instances_val2017.json',
 
     'label_map': COCO_LABEL_MAP
@@ -225,7 +225,7 @@ backbone_base = Config({
 
 resnet101_backbone = backbone_base.copy({
     'name': 'ResNet101',
-    'path': 'resnet101_reducedfc.pth',
+    'path': 'resnet101_reducedfc.pdparams',
     'type': ResNetBackbone,
     'args': ([3, 4, 23, 3],),
     'transform': resnet_transform,
@@ -254,7 +254,7 @@ resnet101_dcn_inter3_backbone = resnet101_backbone.copy({
 
 resnet50_backbone = resnet101_backbone.copy({
     'name': 'ResNet50',
-    'path': 'resnet50-19c8e357.pth',
+    'path': 'resnet50-19c8e357.pdparams',
     'type': ResNetBackbone,
     'args': ([3, 4, 6, 3],),
     'transform': resnet_transform,
@@ -267,7 +267,7 @@ resnet50_dcnv2_backbone = resnet50_backbone.copy({
 
 darknet53_backbone = backbone_base.copy({
     'name': 'DarkNet53',
-    'path': 'darknet53.pth',
+    'path': 'darknet53.pdparams',
     'type': DarkNetBackbone,
     'args': ([1, 2, 8, 8, 4],),
     'transform': darknet_transform,
@@ -288,7 +288,7 @@ vgg16_arch = [[64, 64],
 
 vgg16_backbone = backbone_base.copy({
     'name': 'VGG16',
-    'path': 'vgg16_reducedfc.pth',
+    'path': 'vgg16_reducedfc.pdparams',
     'type': VGGBackbone,
     'args': (vgg16_arch, [(256, 2), (128, 2), (128, 1), (128, 1)], [3]),
     'transform': vgg_transform,

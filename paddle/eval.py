@@ -378,7 +378,7 @@ def _mask_iou(mask1, mask2, iscrowd=False):
 
 def _bbox_iou(bbox1, bbox2, iscrowd=False):
     with timer.env('BBox IoU'):
-        ret = jaccard(bbox1, bbox2, iscrowd)
+        ret = jaccard(paddle.to_tensor(bbox1), paddle.to_tensor(bbox2), iscrowd)
     return ret
 
 def prep_metrics(ap_data, dets, img, gt, gt_masks, h, w, num_crowd, image_id, detections:Detections=None):

@@ -1,9 +1,7 @@
 {
   "ExpandedNodes": [
-    "",
-    "\\paddle",
-    "\\pytorch"
+    ""
   ],
-  "SelectedNode": "\\pytorch\\eval.py",
+  "SelectedNode": "\\.gitignore",
   "PreviewInSolutionExplorer": false
 }

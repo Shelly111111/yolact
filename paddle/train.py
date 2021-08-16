@@ -26,7 +26,7 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser(
     description='Yolact Training Script')
-parser.add_argument('--batch_size', default=8, type=int,
+parser.add_argument('--batch_size', default=2, type=int,
                     help='Batch size for training')
 parser.add_argument('--resume', default=None, type=str,
                     help='Checkpoint state_dict file to resume training from. If this is "interrupt"'\
@@ -50,7 +50,7 @@ parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models.')
 parser.add_argument('--log_folder', default='logs/',
                     help='Directory for saving logs.')
-parser.add_argument('--config', default=None,
+parser.add_argument('--config', default='yolact_base_config',
                     help='The config object to use.')
 parser.add_argument('--save_interval', default=10000, type=int,
                     help='The number of iterations between saving the model.')
@@ -104,14 +104,10 @@ replace('momentum')
 # This is managed by set_lr
 cur_lr = args.lr
 
-if torch.cuda.device_count() == 0:
-    print('No GPUs detected. Exiting...')
-    exit(-1)
-
-if args.batch_size // torch.cuda.device_count() < 6:
-    if __name__ == '__main__':
-        print('Per-GPU batch size is less than the recommended limit for batch norm. Disabling batch norm.')
-    cfg.freeze_bn = True
+#if args.batch_size // torch.cuda.device_count() < 6:
+#    if __name__ == '__main__':
+#        print('Per-GPU batch size is less than the recommended limit for batch norm. Disabling batch norm.')
+#    cfg.freeze_bn = True
 
 loss_types = ['B', 'C', 'M', 'P', 'D', 'E', 'S', 'I']
 
@@ -217,7 +213,7 @@ def train():
     
     # Initialize everything
     if not cfg.freeze_bn: yolact_net.freeze_bn() # Freeze bn so we don't kill our means
-    yolact_net(paddle.zeros(1, 3, cfg.max_size, cfg.max_size))
+    yolact_net(paddle.zeros([1, 3, cfg.max_size, cfg.max_size]))
     if not cfg.freeze_bn: yolact_net.freeze_bn(True)
 
     # loss counters
@@ -232,12 +228,12 @@ def train():
     # Which learning rate adjustment step are we on? lr' = lr * gamma ^ step_index
     step_index = 0
 
-    data_loader = paddle.io.DataLoader(dataset, args.batch_size,
+    data_loader = paddle.io.DataLoader(dataset, batch_size=args.batch_size,
                                   num_workers=args.num_workers,
-                                  shuffle=True, collate_fn=detection_collate,
-                                  pin_memory=True)
-    
-    
+                                  shuffle=True, collate_fn=detection_collate
+                                  #pin_memory=True
+                                  )    
+
     save_path = lambda epoch, iteration: SavePath(cfg.name, epoch, iteration).get_path(root=args.save_folder)
     time_avg = MovingAverage()
 
@@ -253,11 +249,10 @@ def train():
             if (epoch+1)*epoch_size < iteration:
                 continue
             
-            for datum in data_loader:
+            for datum in data_loader():
                 # Stop if we've reached an epoch if we're resuming from start_iter
                 if iteration == (epoch+1)*epoch_size:
                     break
-
                 # Stop at the configured number of iterations even if mid-epoch
                 if iteration == cfg.max_iter:
                     break
@@ -288,9 +283,9 @@ def train():
                 
                 # Zero the grad to get ready to compute gradients
                 optimizer.clear_grad()
-
                 # Forward Pass + Compute loss at the same time (see CustomDataParallel and NetLoss)
-                losses = net(datum)
+
+                losses = net(datum[0],datum[1][0],datum[1][1],datum[1][2])
                 
                 losses = { k: (v).mean() for k,v in losses.items() } # Mean here because Dataparallel
                 loss = sum([losses[k] for k in losses])
@@ -300,7 +295,7 @@ def train():
 
                 # Backprop
                 loss.backward() # Do this to free up vram even if loss is not finite
-                if torch.isfinite(loss).item():
+                if paddle.isfinite(loss).item():
                     optimizer.step()
                 
                 # Add the loss to the moving average for bookkeeping
@@ -372,8 +367,8 @@ def train():
 
 
 def set_lr(optimizer, new_lr):
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
+    for param_group in optimizer._parameter_list:
+        param_group.optimize_attr['learning_rate'] = new_lr
     
     global cur_lr
     cur_lr = new_lr
@@ -422,7 +417,7 @@ def prepare_data(datum, devices:list=None, allocation:list=None):
 
         return split_images, split_targets, split_masks, split_numcrowds
 
-def no_inf_mean(x:torch.Tensor):
+def no_inf_mean(x:paddle.Tensor):
     """
     Computes the mean of a vector, throwing out all inf values.
     If there are no non-inf values, this will return inf (i.e., just the normal mean).

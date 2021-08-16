@@ -64,8 +64,8 @@ def jaccard(box_a, box_b, iscrowd:bool=False):
     use_batch = True
     if box_a.ndim == 2:
         use_batch = False
-        box_a = box_a[None, ...]
-        box_b = box_b[None, ...]
+        box_a = box_a.numpy()[None, ...]
+        box_b = box_b.numpy()[None, ...]
 
     inter = intersect(box_a, box_b)
     area_a = paddle.to_tensor((box_a[:, :, 2]-box_a[:, :, 0]) *
@@ -192,7 +192,7 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes, loc_t, co
         j = best_prior_overlap.max(0)[1]
 
         # Find i, the highest overlap anchor with this gt
-        i = best_prior_idx[j]
+        i = best_prior_idx.numpy()[j]
 
         # Set all other overlaps with i to be -1 so that no other gt uses it
         overlaps[:, i] = -1
@@ -217,7 +217,7 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes, loc_t, co
         # Size [num_priors]
         best_crowd_overlap, best_crowd_idx = crowd_overlaps.max(1)
         # Set non-positives with crowd iou of over the threshold to be neutral.
-        conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_threshold)] = -1
+        conf[(conf <= 0).numpy() & (best_crowd_overlap > cfg.crowd_iou_threshold).numpy()] = -1
 
     loc = encode(matches, priors, cfg.use_yolo_regressors)
     loc_t[idx]  = loc    # [num_priors,4] encoded offsets to learn
@@ -255,9 +255,9 @@ def encode(matched, priors, use_yolo_regressors:bool=False):
         g_cxcy /= (variances[0] * priors[:, 2:])
         # match wh / prior wh
         g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]
-        g_wh = torch.log(g_wh) / variances[1]
+        g_wh = paddle.log(g_wh) / variances[1]
         # return target for smooth_l1_loss
-        loc = torch.cat([g_cxcy, g_wh], 1)  # [num_priors,4]
+        loc = paddle.concat([g_cxcy, g_wh], 1)  # [num_priors,4]
         
     return loc
 
@@ -316,7 +316,7 @@ def log_sum_exp(x):
     Args:
         x (Variable(tensor)): conf_preds from conf layers
     """
-    x_max = x.data.max()
+    x_max = paddle.max(x.data)
     return paddle.log(paddle.sum(paddle.exp(x-x_max), 1)) + x_max
 
 

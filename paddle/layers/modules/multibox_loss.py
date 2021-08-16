@@ -88,13 +88,13 @@ class MultiBoxLoss(nn.Layer):
 
         # Match priors (default boxes) and ground truth boxes
         # These tensors will be created with the same device as loc_data
-        loc_t = loc_data.new(batch_size, num_priors, 4)
-        gt_box_t = loc_data.new(batch_size, num_priors, 4)
-        conf_t = loc_data.new(batch_size, num_priors)
-        idx_t = loc_data.new(batch_size, num_priors)
+        loc_t = paddle.full([batch_size, num_priors, 4],fill_value=0,dtype=loc_data.dtype)
+        gt_box_t = paddle.full([batch_size, num_priors, 4],fill_value=0,dtype=loc_data.dtype)
+        conf_t = paddle.full([batch_size, num_priors],fill_value=0,dtype=loc_data.dtype)
+        idx_t = paddle.full([batch_size, num_priors],fill_value=0,dtype='int64')
 
         if cfg.use_class_existence_loss:
-            class_existence_t = loc_data.new(batch_size, num_classes-1)
+            class_existence_t = paddle.full([batch_size, num_classes-1],fill_value=0,dtype=loc_data.dtype)
 
         for idx in range(batch_size):
             truths      = targets[idx][:, :-1].data
@@ -108,7 +108,8 @@ class MultiBoxLoss(nn.Layer):
             # Split the crowd annotations because they come bundled in
             cur_crowds = num_crowds[idx]
             if cur_crowds > 0:
-                split = lambda x: (x[-cur_crowds:], x[:-cur_crowds])
+                split = lambda x: (paddle.to_tensor(x.numpy()[-cur_crowds:]), paddle.to_tensor(x.numpy()[:-cur_crowds]))
+
                 crowd_boxes, truths = split(truths)
 
                 # We don't use the crowd labels or masks
@@ -125,7 +126,7 @@ class MultiBoxLoss(nn.Layer):
             gt_box_t[idx, :, :] = truths[idx_t[idx]]
 
         pos = conf_t > 0
-        num_pos = pos.sum(axis=1, keepdim=True)
+        num_pos = paddle.sum(pos.astype('float32'), axis=1, keepdim=True)
         
         # Shape: [batch,num_priors,4]
         pos_idx = pos.unsqueeze(pos.ndim).expand_as(loc_data)
@@ -189,7 +190,7 @@ class MultiBoxLoss(nn.Layer):
 
         # Divide all losses by the number of positives.
         # Don't do it for loss[P] because that doesn't depend on the anchors.
-        total_num_pos = num_pos.data.sum().astype('float32')
+        total_num_pos = paddle.sum(num_pos.data).astype('float32')
         for k in losses:
             if k not in ('P', 'E', 'S'):
                 losses[k] /= total_num_pos
@@ -218,7 +219,7 @@ class MultiBoxLoss(nn.Layer):
             cur_segment = segment_data[idx]
             cur_class_t = class_t[idx]
 
-            with torch.no_grad():
+            with paddle.no_grad():
                 downsampled_masks = F.interpolate(mask_t[idx].unsqueeze(0), (mask_h, mask_w),
                                                   mode=interpolation_mode, align_corners=False).squeeze(0)
                 downsampled_masks = downsampled_masks>0.5
@@ -226,7 +227,8 @@ class MultiBoxLoss(nn.Layer):
                 # Construct Semantic Segmentation
                 segment_t = paddle.zeros_like(cur_segment)
                 for obj_idx in range(downsampled_masks.size(0)):
-                    segment_t[cur_class_t[obj_idx]] = paddle.maximum(segment_t[cur_class_t[obj_idx]], downsampled_masks[obj_idx])
+
+                    segment_t[int(cur_class_t[obj_idx])] = paddle.maximum(segment_t[int(cur_class_t[obj_idx])], downsampled_masks[obj_idx].astype('float32'))
             
             loss_s += F.binary_cross_entropy_with_logits(cur_segment, segment_t, reduction='sum')
         
@@ -235,7 +237,7 @@ class MultiBoxLoss(nn.Layer):
 
     def ohem_conf_loss(self, conf_data, conf_t, pos, num):
         # Compute max conf across batch for hard negative mining
-        batch_conf = conf_data.view(-1, self.num_classes)
+        batch_conf = conf_data.reshape(-1, self.num_classes)
         if cfg.ohem_use_most_confident:
             # i.e. max(softmax) along classes > 0 
             batch_conf = F.softmax(batch_conf, axis=1)
@@ -246,8 +248,8 @@ class MultiBoxLoss(nn.Layer):
 
         # Hard Negative Mining
         loss_c = loss_c.reshape(num, -1)
-        loss_c[pos]        = 0 # filter out pos boxes
-        loss_c[conf_t < 0] = 0 # filter out neutrals (conf_t = -1)
+        loss_c[pos.numpy()]        = 0 # filter out pos boxes
+        loss_c[(conf_t < 0).numpy()] = 0 # filter out neutrals (conf_t = -1)
         _, loss_idx = loss_c.sort(1, descending=True)
         _, idx_rank = loss_idx.sort(1)
         num_pos = pos.long().sum(1, keepdim=True)
@@ -255,14 +257,14 @@ class MultiBoxLoss(nn.Layer):
         neg = idx_rank < num_neg.expand_as(idx_rank)
         
         # Just in case there aren't enough negatives, don't start using positives as negatives
-        neg[pos]        = 0
-        neg[conf_t < 0] = 0 # Filter out neutrals
+        neg[pos.numpy()]        = 0
+        neg[(conf_t < 0).numpy()] = 0 # Filter out neutrals
 
         # Confidence Loss Including Positive and Negative Examples
-        pos_idx = pos.unsqueeze(2).expand_as(conf_data)
-        neg_idx = neg.unsqueeze(2).expand_as(conf_data)
-        conf_p = conf_data[(pos_idx+neg_idx)>0].reshape(-1, self.num_classes)
-        targets_weighted = conf_t[(pos+neg)>0]
+        pos_idx = pos.unsqueeze(2).expand_as(conf_data).astype('float32')
+        neg_idx = neg.unsqueeze(2).expand_as(conf_data).astype('float32')
+        conf_p = paddle.to_tensor(conf_data.numpy()[((pos_idx+neg_idx)>0).numpy()]).reshape(-1, self.num_classes)
+        targets_weighted = paddle.to_tensor(conf_t.numpy()[((pos.astype('float32')+neg)>0).numpy()]).astype('int64')
         loss_c = F.cross_entropy(conf_p, targets_weighted, reduction='none')
 
         if cfg.use_class_balanced_conf:
@@ -283,9 +285,9 @@ class MultiBoxLoss(nn.Layer):
             # If you do the math, the average weight of self.class_instances is this
             avg_weight = (self.num_classes - 1) / self.num_classes
 
-            loss_c = (loss_c * weighting).sum() / avg_weight
+            loss_c = paddle.sum(loss_c * weighting) / avg_weight
         else:
-            loss_c = loss_c.sum()
+            loss_c = paddle.sum(loss_c)
         
         return cfg.conf_alpha * loss_c
 
@@ -537,26 +539,26 @@ class MultiBoxLoss(nn.Layer):
                     mask_reweighting  *= mask_h * mask_w
 
             cur_pos = pos[idx]
-            pos_idx_t = idx_t[idx, cur_pos]
+            pos_idx_t = paddle.to_tensor(idx_t.numpy()[idx, cur_pos])
             
             if process_gt_bboxes:
                 # Note: this is in point-form
                 if cfg.mask_proto_crop_with_pred_box:
-                    pos_gt_box_t = decode(loc_data[idx, :, :], priors.data, cfg.use_yolo_regressors)[cur_pos]
+                    pos_gt_box_t = decode(loc_data.numpy()[idx, :, :], priors.data, cfg.use_yolo_regressors)[cur_pos]
                 else:
-                    pos_gt_box_t = gt_box_t[idx, cur_pos]
+                    pos_gt_box_t = paddle.to_tensor(gt_box_t.numpy()[idx, cur_pos])
 
-            if pos_idx_t.size(0) == 0:
+            if not pos_idx_t.shape:
                 continue
 
             proto_masks = proto_data[idx]
-            proto_coef  = mask_data[idx, cur_pos, :]
+            proto_coef  = paddle.to_tensor(mask_data.numpy()[idx, cur_pos, :])
             if cfg.use_mask_scoring:
-                mask_scores = score_data[idx, cur_pos, :]
+                mask_scores = paddle.to_tensor(score_data.numpy()[idx, cur_pos, :])
 
             if cfg.mask_proto_coeff_diversity_loss:
                 if inst_data is not None:
-                    div_coeffs = inst_data[idx, cur_pos, :]
+                    div_coeffs = paddle.to_tensor(inst_data.numpy()[idx, cur_pos, :])
                 else:
                     div_coeffs = proto_coef
 
@@ -568,16 +570,16 @@ class MultiBoxLoss(nn.Layer):
                 perm = paddle.randperm(proto_coef.size(0))
                 select = perm[:cfg.masks_to_train]
 
-                proto_coef = proto_coef[select, :]
+                proto_coef = paddle.to_tensor(proto_coef.numpy()[select, :])
                 pos_idx_t  = pos_idx_t[select]
                 
                 if process_gt_bboxes:
-                    pos_gt_box_t = pos_gt_box_t[select, :]
+                    pos_gt_box_t = paddle.to_tensor(pos_gt_box_t.numpy()[select, :])
                 if cfg.use_mask_scoring:
-                    mask_scores = mask_scores[select, :]
+                    mask_scores = paddle.to_tensor(mask_scores.numpy()[select, :])
 
             num_pos = proto_coef.size(0)
-            mask_t = downsampled_masks[:, :, pos_idx_t]     
+            mask_t = paddle.to_tensor(downsampled_masks.numpy()[:, :, pos_idx_t],dtype='float32')
             label_t = labels[idx][pos_idx_t]     
 
             # Size: [mask_h, mask_w, num_pos]
@@ -612,7 +614,7 @@ class MultiBoxLoss(nn.Layer):
                 pos_gt_csize = center_size(pos_gt_box_t)
                 gt_box_width  = pos_gt_csize[:, 2] * mask_w
                 gt_box_height = pos_gt_csize[:, 3] * mask_h
-                pre_loss = pre_loss.sum(axis=(0, 1)) / gt_box_width / gt_box_height * weight
+                pre_loss = paddle.sum(pre_loss, axis=(0, 1)) / gt_box_width / gt_box_height * weight
 
             # If the number of masks were limited scale the loss accordingly
             if old_num_pos > num_pos:

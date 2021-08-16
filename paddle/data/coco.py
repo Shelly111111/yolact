@@ -273,11 +273,9 @@ def detection_collate(batch):
     imgs = []
     masks = []
     num_crowds = []
-
     for sample in batch:
         imgs.append(sample[0])
         targets.append(paddle.to_tensor(sample[1][0],dtype='float32'))
         masks.append(paddle.to_tensor(sample[1][1],dtype='float32'))
         num_crowds.append(sample[1][2])
-
-    return imgs, (targets, masks, num_crowds)
+    return paddle.to_tensor(imgs), (targets, masks, num_crowds)

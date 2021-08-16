@@ -495,8 +495,10 @@ class Yolact(nn.Layer):
         # Initialize the backbone with the pretrained weights.
         self.backbone.init_backbone(backbone_path)
 
-        conv_constants = getattr(nn.Conv2D(1, 1, 1), '__constants__')
-        
+        #conv_constants = getattr(nn.Conv2D(1, 1, 1), '__constants__')
+        conv_constants =['stride', 'padding', 'dilation', 'groups',
+                     'padding_mode', 'output_padding', 'in_channels',
+                     'out_channels', 'kernel_size']
         # Quick lambda to test if one list contains the other
         def all_in(x, y):
             for _x in x:
@@ -505,7 +507,7 @@ class Yolact(nn.Layer):
             return True
 
         # Initialize the rest of the conv layers with xavier
-        for name, module in self.named_modules():
+        for name, module in self.named_children():
             # See issue #127 for why we need such a complicated condition if the module is a WeakScriptModuleProxy
             # Broke in 1.3 (see issue #175), WeakScriptModuleProxy was turned into just ScriptModule.
             # Broke in 1.4 (see issue #292), where RecursiveScriptModule is the new star of the show.
@@ -524,7 +526,7 @@ class Yolact(nn.Layer):
             is_conv_layer = isinstance(module, nn.Conv2D) or is_script_conv
 
             if is_conv_layer and module not in self.backbone.backbone_modules:
-                nn.init.xavier_uniform_(module.weight.data)
+                nn.initializer.XavierUniform(module.weight.data)
 
                 if module.bias is not None:
                     if cfg.use_focal_loss and 'conf_layer' in name:
@@ -559,8 +561,8 @@ class Yolact(nn.Layer):
             if isinstance(module, nn.BatchNorm2D):
                 module.train() if enable else module.eval()
 
-                module.weight.requires_grad = enable
-                module.bias.requires_grad = enable
+                #module.weight.requires_grad = enable
+                #module.bias.requires_grad = enable
     
     def forward(self, x):
         """ The input should be of size [batch_size, 3, img_h, img_w] """
