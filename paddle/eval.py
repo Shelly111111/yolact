@@ -658,7 +658,7 @@ def evalvideo(net:Yolact, path:str, out_path:str=None):
         num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
     net = CustomDataParallel(net)
-    transform = torch.nn.DataParallel(FastBaseTransform())
+    transform = paddle.DataParallel(FastBaseTransform())
     frame_times = MovingAverage(100)
     fps = 0
     frame_time_target = 1 / target_fps

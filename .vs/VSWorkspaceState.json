@@ -1,9 +1,7 @@
 {
   "ExpandedNodes": [
-    "",
-    "\\paddle",
-    "\\paddle\\data"
+    ""
   ],
-  "SelectedNode": "\\paddle\\data\\config.py",
+  "SelectedNode": "\\paddle",
   "PreviewInSolutionExplorer": false
 }

@@ -651,12 +651,12 @@ class Yolact(nn.Layer):
             return pred_outs
         else:
             if cfg.use_mask_scoring:
-                pred_outs['score'] = torch.sigmoid(pred_outs['score'])
+                pred_outs['score'] = paddle.sigmoid(pred_outs['score'])
 
             if cfg.use_focal_loss:
                 if cfg.use_sigmoid_focal_loss:
                     # Note: even though conf[0] exists, this mode doesn't train it so don't use it
-                    pred_outs['conf'] = torch.sigmoid(pred_outs['conf'])
+                    pred_outs['conf'] = paddle.sigmoid(pred_outs['conf'])
                     if cfg.use_mask_scoring:
                         pred_outs['conf'] *= pred_outs['score']
                 elif cfg.use_objectness_score:

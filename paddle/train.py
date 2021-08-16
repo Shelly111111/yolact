@@ -408,7 +408,7 @@ def prepare_data(datum, devices:list=None, allocation:list=None):
             = [[None for alloc in allocation] for _ in range(4)]
 
         for device_idx, alloc in enumerate(allocation):
-            split_images[device_idx]    = torch.stack(images[cur_idx:cur_idx+alloc], dim=0)
+            split_images[device_idx]    = paddle.stack(images[cur_idx:cur_idx+alloc], axis=0)
             split_targets[device_idx]   = targets[cur_idx:cur_idx+alloc]
             split_masks[device_idx]     = masks[cur_idx:cur_idx+alloc]
             split_numcrowds[device_idx] = num_crowds[cur_idx:cur_idx+alloc]
@@ -423,7 +423,7 @@ def no_inf_mean(x:paddle.Tensor):
     If there are no non-inf values, this will return inf (i.e., just the normal mean).
     """
 
-    no_inf = [a for a in x if torch.isfinite(a)]
+    no_inf = [a for a in x if paddle.isfinite(a)]
 
     if len(no_inf) > 0:
         return sum(no_inf) / len(no_inf)

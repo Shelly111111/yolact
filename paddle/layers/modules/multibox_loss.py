@@ -604,7 +604,7 @@ class MultiBoxLoss(nn.Layer):
 
             if cfg.mask_proto_normalize_mask_loss_by_sqrt_area:
                 gt_area  = paddle.sum(mask_t, axis=(0, 1), keepdim=True)
-                pre_loss = pre_loss / (torch.sqrt(gt_area) + 0.0001)
+                pre_loss = pre_loss / (paddle.sqrt(gt_area) + 0.0001)
             
             if cfg.mask_proto_reweight_mask_loss:
                 pre_loss = pre_loss * mask_reweighting[:, :, pos_idx_t]
