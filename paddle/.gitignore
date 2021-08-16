@@ -50,7 +50,6 @@ coverage.xml
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 
 # Flask stuff:
@@ -137,7 +136,6 @@ data/coco/images/
 data/coco/annotations/
 ap_data.pkl
 results/
-logs/
 scripts/aws/
 scripts/gt.npy
 scripts/proto.npy
