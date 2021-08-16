@@ -1,8 +1,9 @@
 {
   "ExpandedNodes": [
     "",
-    "\\paddle"
+    "\\paddle",
+    "\\paddle\\data"
   ],
-  "SelectedNode": "\\paddle\\.gitignore",
+  "SelectedNode": "\\paddle\\data\\config.py",
   "PreviewInSolutionExplorer": false
 }
