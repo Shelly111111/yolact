@@ -108,7 +108,7 @@ class SavePath:
         self.iteration = iteration
 
     def get_path(self, root:str=''):
-        file_name = self.model_name + '_' + str(self.epoch) + '_' + str(self.iteration) + '.pth'
+        file_name = self.model_name + '_' + str(self.epoch) + '_' + str(self.iteration) + '.pdparams'
         return os.path.join(root, file_name)
 
     @staticmethod
@@ -131,12 +131,12 @@ class SavePath:
 
     @staticmethod
     def remove_interrupt(save_folder):
-        for p in Path(save_folder).glob('*_interrupt.pth'):
+        for p in Path(save_folder).glob('*_interrupt.pdparams'):
             p.unlink()
     
     @staticmethod
     def get_interrupt(save_folder):
-        for p in Path(save_folder).glob('*_interrupt.pth'): 
+        for p in Path(save_folder).glob('*_interrupt.pdparams'): 
             return str(p)
         return None
     

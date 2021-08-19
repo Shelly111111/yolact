@@ -1,7 +1,9 @@
 {
   "ExpandedNodes": [
-    ""
+    "",
+    "\\paddle",
+    "\\paddle\\data"
   ],
-  "SelectedNode": "\\paddle",
+  "SelectedNode": "\\paddle\\train.py",
   "PreviewInSolutionExplorer": false
 }
